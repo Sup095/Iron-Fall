@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Iron Fall</title>
+    <style>
+        body { margin: 0; background: #050505; color: #a0a0a0; font-family: 'Courier New', monospace; overflow: hidden; user-select: none; touch-action: none; }
+        canvas { display: block; margin: 0 auto; cursor: crosshair; }
+        
+        .ui-panel { position: absolute; background: rgba(15, 15, 15, 0.9); padding: 10px; border: 2px solid #5a4033; box-shadow: 3px 3px 10px rgba(0,0,0,0.8); pointer-events: none; transition: all 0.3s; z-index: 10; }
+        #ui-top { top: 10px; left: 10px; }
+        #ui-meta-hud { top: 10px; right: 10px; text-align: right; }
+        #ui-unit { display: none; top: 10px; left: 50%; transform: translateX(-50%); text-align: center; border-color: #5a7b8c; pointer-events: all; }
+        
+        .ui-content { display: block; }
+        .minimized .ui-content { display: none; }
+        
+        .stat { margin-bottom: 5px; font-weight: bold; font-size: 12px; color: #d0c0b0; }
+        .money { color: #88cc88; font-size: 16px; }
+        .meta-text { color: #88bbff; font-size: 14px; text-shadow: 0 0 5px #0055ff; }
+        .alert-text { color: #d43; font-weight: bold; animation: pulse 1s infinite; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
+        #ui-selection { display: none; position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(20, 20, 20, 0.95); padding: 15px; border: 2px solid #754; text-align: center; z-index: 10; pointer-events: all; }
+        #ui-selection h3 { margin: 0 0 10px 0; color: #fff; font-size: 14px; }
+        
+        button { pointer-events: all; cursor: pointer; background: #4a2e25; color: #fff; border: 2px solid #754; padding: 5px 10px; margin: 2px; font-family: inherit; font-size: 12px; font-weight: bold; transition: background 0.2s; }
+        button:hover { background: #6a4e35; }
+        button:disabled { background: #222; color: #555; border-color: #333; cursor: not-allowed; }
+        .btn-toggle { background: #332211; border-color: #532; padding: 2px 6px; margin-bottom: 5px; float: right; }
+        
+        .modal { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(10, 10, 10, 0.95); padding: 20px; border: 3px solid #5a4033; box-shadow: 0 0 20px #000; z-index: 100; text-align: center; width: 90%; max-width: 450px; pointer-events: all; }
+        .modal h2 { color: #fff; margin-top: 0; font-size: 18px; }
+        .modal p { line-height: 1.4; color: #ccc; font-size: 13px; }
+        
+        #game-over { border-color: #d43; }
+        #game-over h1 { color: #d43; font-size: 30px; margin: 0 0 10px 0; text-shadow: 2px 2px 5px #000; }
+        .shop-item { display: flex; justify-content: space-between; margin: 8px 0; padding: 8px; background: #1a1a1a; border: 1px solid #444; align-items: center; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="ui-top" class="ui-panel">
+        <button class="btn-toggle" onclick="toggleUI('ui-top')">[-]</button>
+        <div class="ui-content">
+            <div class="stat money" id="status-money">Scrap: $0</div>
+            <div class="stat" id="status-income">Income: $0 / sec</div>
+            <div class="stat" id="status-rings">City Size: 0 / 12 Rings</div>
+            <div class="stat" id="status-divs">Infantry: 0 | Air Squads: 0</div>
+            <button id="btn-expand" onclick="expandCity()">Build New Ring</button><br>
+            <button id="btn-recruit" onclick="recruitDivision()">Recruit Infantry ($300)</button>
+            <button id="btn-recruit-air" onclick="recruitAirSquadron()">Deploy Air Squadron ($400)</button><br>
+            <button id="btn-caravan" onclick="deployCaravan()">Deploy Caravan ($150)</button><br><br>
+            <button onclick="document.getElementById('help-modal').style.display='block'">Help & Controls</button>
+        </div>
+    </div>
+
+    <div id="ui-meta-hud" class="ui-panel">
+        <button class="btn-toggle" onclick="toggleUI('ui-meta-hud')">[-]</button>
+        <div class="ui-content">
+            <div class="stat meta-text" id="status-meta">Aether Cores: 0</div>
+            <div class="stat" id="status-kills">Kills: 0</div>
+            <button style="background: #622;" onclick="hardReset()">Hard Reset</button>
+        </div>
+    </div>
+
+    <div id="ui-unit" class="ui-panel">
+        <div class="stat" style="color:#88bbff;">Infantry Division Selected</div>
+        <p style="font-size:10px; margin: 5px 0;">Tap empty space to move.</p>
+        <button onclick="deselectUnit()" style="background:#823; border-color:#d43;">Deselect (Esc)</button>
+    </div>
+
+    <div id="ui-selection">
+        <h3 id="sel-title">Ring Selected</h3>
+        <p class="stat" id="sel-stats">Stats</p>
+        <p id="sel-alert" class="stat alert-text" style="display:none;">BREACHED: Economy Offline</p>
+        <button id="btn-up-def" onclick="upgradeDefense()">Upgrade Defenses ($100)</button>
+        <button id="btn-up-econ" onclick="upgradeEconomy()">Upgrade Economy ($150)</button>
+        <button onclick="closeSelection()">Close</button>
+    </div>
+
+    <div id="help-modal" class="modal">
+        <h2>Commander's Manual</h2>
+        <p><strong>Controls:</strong> Select units/rings by tapping or left-clicking. Move units by tapping empty ground or right-clicking. Air Units scramble automatically.</p>
+        <p><strong>Threats:</strong> The enemy forces scale infinitely. Enemy bombers appear later in the game; build deeper rings to automatically deploy Anti-Air Flak turrets!</p>
+        <button onclick="document.getElementById('help-modal').style.display='none'">Close</button>
+    </div>
+
+    <div id="game-over" class="modal">
+        <h1>COMMAND FACILITY LOST</h1>
+        <p>You earned <strong class="meta-text" id="go-cores">0 Aether Cores</strong> this run.</p>
+        
+        <h2>Aether Shop</h2>
+        <div class="shop-item">
+            <span>Expand Formations (Grid Size)</span>
+            <button id="btn-shop-div" onclick="buyMeta('squadSize')">Buy</button>
+        </div>
+        <div class="shop-item">
+            <span>Reinforced Alloys (+Wall HP)</span>
+            <button id="btn-shop-wall" onclick="buyMeta('wallHp')">Buy</button>
+        </div>
+        <div class="shop-item">
+            <span>Turret Caliber (+Dmg)</span>
+            <button id="btn-shop-turret" onclick="buyMeta('turretDamage')">Buy</button>
+        </div>
+        <div class="shop-item">
+            <span style="color:#ffd700">Base Economy (+Start Income)</span>
+            <button id="btn-shop-econ" onclick="buyMeta('startingEcon')">Buy</button>
+        </div>
+        <button style="margin-top:15px; padding: 10px 20px; font-size:14px;" onclick="location.reload()">Deploy Again</button>
+    </div>
+
+    <canvas id="cityCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('cityCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- Meta Progression ---
+let metaUpgrades = JSON.parse(localStorage.getItem('dieselMetaUpgrades4')) || { squadSize: 0, wallHp: 0, turretDamage: 0, startingEcon: 0 };
+let aetherCores = parseInt(localStorage.getItem('dieselAetherCores')) || 0;
+
+function saveMeta() { localStorage.setItem('dieselMetaUpgrades4', JSON.stringify(metaUpgrades)); localStorage.setItem('dieselAetherCores', aetherCores); }
+function getCost(stat) { return stat === 'startingEcon' ? 3 + (metaUpgrades[stat] * 2) : 1 + metaUpgrades[stat]; }
+
+window.hardReset = function() { if(confirm("Wipe all Aether Cores and Upgrades?")) { localStorage.clear(); location.reload(); } }
+window.toggleUI = function(id) { document.getElementById(id).classList.toggle('minimized'); }
+window.deselectUnit = function() { selectedDivision = null; document.getElementById('ui-unit').style.display = 'none'; }
+window.addEventListener('keydown', e => { if(e.key === 'Escape') { closeSelection(); deselectUnit(); document.getElementById('help-modal').style.display='none'; } });
+
+window.buyMeta = function(stat) {
+    let cost = getCost(stat);
+    if (aetherCores >= cost) { 
+        if (stat === 'squadSize' && metaUpgrades.squadSize >= 4) return;
+        aetherCores -= cost; metaUpgrades[stat]++; saveMeta(); updateShopUI(); 
+    }
+}
+
+// --- Game State ---
+const RING_SPACING = 120; const GATES = [0, Math.PI/2, Math.PI, Math.PI*1.5]; const NUM_SEGMENTS = 16;
+
+let isGameOver = false; let frameCount = 0; let totalKills = 0; let runCoresEarned = 0;
+let money = 200; let outermostIntactLevel = 0;
+let rings = []; let monsters = []; let enemyAir = []; let projectiles = []; let explosions = [];
+let buildings = []; let turrets = []; let divisions = []; let caravans = []; let airSquadrons = []; let scrapNodes = [];
+let selectedRingLevel = null; let selectedDivision = null;
+let camera = { x: 0, y: 0, zoom: 0.8 }; let isDragging = false; let dragStart = { x: 0, y: 0 }; let camStart = { x: 0, y: 0 };
+let isTouchMode = false; let lastTouch = {x: 0, y: 0};
+
+function initGame() {
+    canvas.width = window.innerWidth; canvas.height = window.innerHeight;
+    for(let i = 1; i <= 3; i++) addRing(i);
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+    requestAnimationFrame(gameLoop);
+}
+
+// --- Input Handling ---
+function handleInput(screenX, screenY, isRightClick) {
+    const wX = (screenX - canvas.width/2)/camera.zoom + camera.x; const wY = (screenY - canvas.height/2)/camera.zoom + camera.y;
+
+    if (isRightClick && selectedDivision) { selectedDivision.setTarget(wX, wY); return; }
+
+    let clickedDiv = divisions.find(d => Math.hypot(wX - d.x, wY - d.y) < 40);
+    if (clickedDiv) {
+        if (selectedDivision === clickedDiv) deselectUnit();
+        else { selectedDivision = clickedDiv; document.getElementById('ui-unit').style.display = 'block'; closeSelection(); }
+        return;
+    }
+
+    if (selectedDivision && (isTouchMode || !isRightClick)) { selectedDivision.setTarget(wX, wY); return; }
+
+    deselectUnit();
+    const clickedLevel = Math.ceil(Math.hypot(wX, wY) / RING_SPACING);
+    if (clickedLevel > 0 && clickedLevel <= rings.length) { selectedRingLevel = clickedLevel; updateSelectionUI(); } 
+    else closeSelection();
+}
+
+canvas.addEventListener('mousedown', e => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('.ui-panel') || e.target.closest('.modal') || e.target.closest('#ui-selection')) return;
+    if (e.button === 0) { isDragging = true; dragStart = { x: e.clientX, y: e.clientY }; camStart = { x: camera.x, y: camera.y }; } 
+    else if (e.button === 2) { handleInput(e.clientX, e.clientY, true); }
+});
+canvas.addEventListener('mousemove', e => { if (isDragging) { camera.x = camStart.x - (e.clientX - dragStart.x)/camera.zoom; camera.y = camStart.y - (e.clientY - dragStart.y)/camera.zoom; } });
+canvas.addEventListener('mouseup', e => { 
+    if (e.target.tagName === 'BUTTON' || e.target.closest('.ui-panel') || e.target.closest('.modal') || e.target.closest('#ui-selection')) return;
+    if (e.button === 0) { isDragging = false; if (Math.hypot(e.clientX - dragStart.x, e.clientY - dragStart.y) < 5) handleInput(e.clientX, e.clientY, false); } 
+});
+canvas.addEventListener('wheel', e => camera.zoom = Math.max(0.2, Math.min(2.5, camera.zoom * (e.deltaY > 0 ? 0.9 : 1.1))));
+
+canvas.addEventListener('touchstart', e => {
+    if (e.target.tagName === 'BUTTON' || e.target.closest('.ui-panel') || e.target.closest('.modal') || e.target.closest('#ui-selection')) return;
+    e.preventDefault(); isTouchMode = true; let t = e.touches[0]; lastTouch = {x: t.clientX, y: t.clientY};
+    isDragging = true; dragStart = { x: t.clientX, y: t.clientY }; camStart = { x: camera.x, y: camera.y };
+}, {passive: false});
+canvas.addEventListener('touchmove', e => {
+    if(!isDragging) return; e.preventDefault(); let t = e.touches[0]; lastTouch = {x: t.clientX, y: t.clientY};
+    camera.x = camStart.x - (t.clientX - dragStart.x)/camera.zoom; camera.y = camStart.y - (t.clientY - dragStart.y)/camera.zoom;
+}, {passive: false});
+canvas.addEventListener('touchend', e => {
+    if(!isDragging) return; e.preventDefault(); isDragging = false;
+    if (Math.hypot(lastTouch.x - dragStart.x, lastTouch.y - dragStart.y) < 10) handleInput(lastTouch.x, lastTouch.y, false);
+}, {passive: false});
+
+
+// --- Entities ---
+class MobileUnit {
+    constructor(x, y, speed) { this.x = x; this.y = y; this.speed = speed; this.path = []; this.angle = 0; }
+    setTarget(endX, endY) {
+        this.path = []; 
+        let currR = Math.hypot(this.x, this.y); let targetR = Math.hypot(endX, endY);
+        let currZ = Math.floor(currR / RING_SPACING); let targetZ = Math.floor(targetR / RING_SPACING);
+        
+        if (currZ === targetZ) { 
+            this.path.push({x: endX, y: endY}); 
+        } else {
+            let step = currZ < targetZ ? 1 : -1;
+            let z = currZ;
+            
+            while (z !== targetZ) {
+                let wallIndex = step > 0 ? z + 1 : z;
+                let wallR = wallIndex * RING_SPACING;
+                
+                if (wallR > 0 && wallR <= rings.length * RING_SPACING) {
+                    let tAng = Math.atan2(endY, endX);
+                    let bestG = GATES[0]; let minD = Infinity;
+                    GATES.forEach(g => { 
+                        let d = Math.abs(tAng - g); if(d > Math.PI) d = Math.PI*2 - d; 
+                        if(d < minD){ minD = d; bestG = g; }
+                    });
+                    let off = 25 * step;
+                    this.path.push({x: (wallR - off)*Math.cos(bestG), y: (wallR - off)*Math.sin(bestG)}); 
+                    this.path.push({x: wallR*Math.cos(bestG), y: wallR*Math.sin(bestG)}); 
+                    this.path.push({x: (wallR + off)*Math.cos(bestG), y: (wallR + off)*Math.sin(bestG)}); 
+                }
+                z += step;
+            }
+            this.path.push({x: endX, y: endY});
+        }
+    }
+    moveTowardsTarget() {
+        if (this.path.length === 0) return false;
+        let dx = this.path[0].x - this.x; let dy = this.path[0].y - this.y; let dist = Math.hypot(dx, dy);
+        if (dist > this.speed) { this.x += (dx/dist)*this.speed; this.y += (dy/dist)*this.speed; this.angle = Math.atan2(dy, dx); } 
+        else { this.x = this.path[0].x; this.y = this.path[0].y; this.path.shift(); }
+        return true;
+    }
+}
+
+class Division extends MobileUnit {
+    constructor() {
+        super(0, 0, 3.5); 
+        this.cols = Math.min(5, 2 + metaUpgrades.squadSize); this.rows = metaUpgrades.squadSize >= 4 ? 4 : 3; this.squadSize = this.cols * this.rows;
+        this.maxHp = 100 + (this.squadSize * 15); this.hp = this.maxHp; this.cooldown = 0; this.damage = 10 + (this.squadSize * 2);
+    }
+    update() {
+        if (this.hp <= 0) return;
+        let closest = null; let minDist = 180;
+        monsters.forEach(m => { let d = Math.hypot(m.x - this.x, m.y - this.y); if (d < minDist) { minDist = d; closest = m; } });
+
+        if (closest) {
+            this.angle = Math.atan2(closest.y - this.y, closest.x - this.x); 
+            if (this.cooldown <= 0) { 
+                let aliveRatio = Math.max(0.2, this.hp / this.maxHp);
+                projectiles.push(new Projectile(this.x, this.y, closest, this.damage * aliveRatio, 0, false, false)); 
+                this.cooldown = 20; 
+            } else this.cooldown--;
+        }
+        this.moveTowardsTarget();
+
+        let myDist = Math.hypot(this.x, this.y); let myAngle = (Math.atan2(this.y, this.x) + Math.PI*2) % (Math.PI*2);
+        for (let r of rings) {
+            if (Math.abs(myDist - r.radius) < 40) {
+                let segIndex = Math.floor((myAngle / (Math.PI*2)) * NUM_SEGMENTS); let seg = r.segments[segIndex];
+                if (seg.hp < seg.maxHp) {
+                    let enemiesNear = monsters.some(m => Math.hypot(m.x - this.x, m.y - this.y) < 150);
+                    if (!enemiesNear && frameCount % 5 === 0) {
+                        seg.hp = Math.min(seg.maxHp, seg.hp + 2); 
+                        if(Math.random() > 0.5) projectiles.push({ x: this.x + (Math.random()-0.5)*20, y: this.y + (Math.random()-0.5)*20, target: null, draw: function() { ctx.fillStyle="#0ff"; ctx.fillRect(this.x, this.y, 2, 2); }, update: () => false });
+                    }
+                }
+            }
+        }
+        if (rings.length > 0 && myDist < rings[rings.length-1].radius) { if (this.hp < this.maxHp && frameCount % 30 === 0) this.hp += 1; }
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (selectedDivision === this) { ctx.strokeStyle = "#0f0"; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(0,0,25,0,Math.PI*2); ctx.stroke(); }
+        ctx.rotate(this.angle);
+        let menAlive = Math.ceil((this.hp / this.maxHp) * this.squadSize); let drawn = 0;
+        let startX = -((this.cols - 1) * 10) / 2; let startY = -((this.rows - 1) * 10) / 2;
+        
+        for (let r = 0; r < this.rows; r++) {
+            for (let c = 0; c < this.cols; c++) {
+                if (drawn >= menAlive) break;
+                let px = startX + c * 10; let py = startY + r * 10;
+                
+                // Backpack
+                ctx.fillStyle = "#3a352a"; 
+                ctx.fillRect(px - 4, py - 2.5, 3, 5);
+                
+                // Helmet
+                ctx.fillStyle = "#4a5a3a"; 
+                ctx.beginPath(); ctx.arc(px, py, 3.5, 0, Math.PI*2); ctx.fill();
+                
+                // Rifle
+                ctx.fillStyle = "#111"; 
+                ctx.fillRect(px + 1, py + 1.5, 7, 1.5); 
+                
+                drawn++;
+            }
+        }
+        ctx.restore();
+    }
+}
+
+// --- AIR COMBAT CLASSES ---
+class FighterSquadron {
+    constructor() {
+        this.maxFighters = 5 + metaUpgrades.squadSize;
+        this.fighters = [];
+        this.rebuildTimer = 0;
+        for(let i=0; i<this.maxFighters; i++) this.fighters.push(new Fighter());
+    }
+    update() {
+        this.fighters.forEach(f => f.update());
+        this.fighters = this.fighters.filter(f => f.hp > 0);
+        
+        // Recover losses when out of combat
+        if (this.fighters.length < this.maxFighters && enemyAir.length === 0) {
+            this.rebuildTimer++;
+            if(this.rebuildTimer > 180) { // 3 seconds per replacement plane
+                this.fighters.push(new Fighter());
+                this.rebuildTimer = 0;
+            }
+        } else {
+            this.rebuildTimer = 0;
+        }
+    }
+    draw() { this.fighters.forEach(f => f.draw()); }
+}
+
+class Fighter {
+    constructor() {
+        this.x = (Math.random() - 0.5) * 100; this.y = (Math.random() - 0.5) * 100;
+        this.angle = Math.random() * Math.PI * 2;
+        this.speed = 5.5 + Math.random();
+        this.hp = 30; this.cooldown = 0;
+        this.patrolAngle = Math.random() * Math.PI * 2;
+        this.patrolRadiusOffset = (Math.random() - 0.5) * 80;
+    }
+    update() {
+        let target = null; let minDist = Infinity;
+        enemyAir.forEach(e => {
+            // Only target if less than 3 fighters are currently targeting it
+            if (e.targetedBy < 3) {
+                let d = Math.hypot(e.x - this.x, e.y - this.y);
+                if(d < minDist) { minDist = d; target = e; }
+            }
+        });
+
+        if (target) {
+            target.targetedBy++; // Register this fighter targeting the bomber
+            let tAngle = Math.atan2(target.y - this.y, target.x - this.x);
+            let angleDiff = tAngle - this.angle;
+            while(angleDiff < -Math.PI) angleDiff += Math.PI*2;
+            while(angleDiff > Math.PI) angleDiff -= Math.PI*2;
+            this.angle += angleDiff * 0.1;
+            
+            this.x += Math.cos(this.angle) * this.speed;
+            this.y += Math.sin(this.angle) * this.speed;
+
+            if (minDist < 200 && this.cooldown <= 0) {
+                projectiles.push(new Projectile(this.x, this.y, target, 15, 0, false, true));
+                this.cooldown = 15;
+            }
+        } else {
+            this.patrolAngle += 0.01;
+            let targetRadius = (outermostIntactLevel * RING_SPACING) - 30 + this.patrolRadiusOffset;
+            let tx = targetRadius * Math.cos(this.patrolAngle);
+            let ty = targetRadius * Math.sin(this.patrolAngle);
+            
+            let tAngle = Math.atan2(ty - this.y, tx - this.x);
+            let angleDiff = tAngle - this.angle;
+            while(angleDiff < -Math.PI) angleDiff += Math.PI*2;
+            while(angleDiff > Math.PI) angleDiff -= Math.PI*2;
+            this.angle += angleDiff * 0.05;
+
+            let dist = Math.hypot(tx - this.x, ty - this.y);
+            let currentSpeed = Math.min(this.speed, dist * 0.1);
+            if (dist > 10) {
+                this.x += Math.cos(this.angle) * currentSpeed;
+                this.y += Math.sin(this.angle) * currentSpeed;
+            }
+        }
+        if (this.cooldown > 0) this.cooldown--;
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.beginPath(); ctx.moveTo(12,-10); ctx.lineTo(-4,-15); ctx.lineTo(-8,-10); ctx.lineTo(-8,-4); ctx.lineTo(-12,-6); ctx.fill();
+        ctx.fillStyle = "#88bbff";
+        ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-2, -8); ctx.lineTo(-6, -2); ctx.lineTo(-10, -4); ctx.lineTo(-10, 4); ctx.lineTo(-6, 2); ctx.lineTo(-2, 8); ctx.fill();
+        ctx.fillStyle = "#222"; ctx.fillRect(2, -1, 4, 2); 
+        ctx.restore();
+    }
+}
+
+class EnemyAircraft {
+    constructor() {
+        let spawnAng = Math.random() * Math.PI * 2; let dist = (rings.length * RING_SPACING) + 1500; 
+        this.x = dist * Math.cos(spawnAng); this.y = dist * Math.sin(spawnAng);
+        
+        let diff = 1 + (frameCount / 1000) + Math.pow(frameCount / 10000, 2);
+        this.hp = 80 * diff; this.speed = 2.0; this.angle = Math.atan2(-this.y, -this.x);
+        this.targetedBy = 0; // Tracks how many fighters are intercepting
+    }
+    update() {
+        this.x += Math.cos(this.angle) * this.speed;
+        this.y += Math.sin(this.angle) * this.speed;
+
+        if (Math.hypot(this.x, this.y) < 40) {
+            isGameOver = true; 
+            document.getElementById('go-cores').innerText = `${runCoresEarned} Aether Cores`; 
+            document.getElementById('game-over').style.display = 'block'; 
+            updateShopUI();
+        }
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.beginPath(); ctx.moveTo(18,-15); ctx.lineTo(-10,-35); ctx.lineTo(-18,-15); ctx.fill();
+        ctx.fillStyle = "#6a2a2a";
+        ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-5, -20); ctx.lineTo(-12, -5); ctx.lineTo(-18, -10); ctx.lineTo(-18, 10); ctx.lineTo(-12, 5); ctx.lineTo(-5, 20); ctx.fill();
+        ctx.fillStyle = "#f42"; ctx.fillRect(6, -2, 4, 4); 
+        ctx.restore();
+    }
+}
+
+class Caravan extends MobileUnit {
+    constructor() { super(0, 0, 1.0); this.hasScrap = false; this.hp = 50; this.targetNode = null; this.findNode(); }
+    findNode() { if (scrapNodes.length > 0) { this.targetNode = scrapNodes[Math.floor(Math.random() * scrapNodes.length)]; this.setTarget(this.targetNode.x, this.targetNode.y); } }
+    update() {
+        if (this.hp <= 0) return false;
+        if (this.path.length === 0 && !this.hasScrap) this.findNode(); this.moveTowardsTarget();
+        if (this.path.length === 0) {
+            if (!this.hasScrap && this.targetNode) { this.hasScrap = true; scrapNodes = scrapNodes.filter(n => n !== this.targetNode); this.setTarget(0, 0); } 
+            else if (this.hasScrap && Math.hypot(this.x, this.y) < 30) { money += 400; return false; }
+        }
+        return true; 
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y);
+        ctx.fillStyle = this.hasScrap ? "#ffd700" : "#aa8822"; ctx.fillRect(-8, -6, 16, 12);
+        ctx.fillStyle = "#222"; ctx.fillRect(-4, -4, 8, 8); ctx.restore();
+    }
+}
+
+function addRing(level) {
+    const radius = level * RING_SPACING; let baseHp = 100 + (level*30) + (metaUpgrades.wallHp * 50); 
+    let segments = [];
+    for(let i=0; i<NUM_SEGMENTS; i++) {
+        let startAngle = (i * Math.PI * 2) / NUM_SEGMENTS; let endAngle = ((i+1) * Math.PI * 2) / NUM_SEGMENTS;
+        segments.push({ hp: baseHp, maxHp: baseHp, startAngle, endAngle });
+    }
+    
+    // Generate workers for the walls
+    let numWorkers = Math.max(3, 30 - (level * 3));
+    let workers = [];
+    for(let i=0; i<numWorkers; i++) {
+        workers.push({
+            angle: Math.random() * Math.PI * 2,
+            speed: (Math.random() - 0.5) * 0.006,
+            radiusOffset: (Math.random() - 0.5) * 3
+        });
+    }
+
+    rings.push({ level, radius, segments, defenseLevel: 1, economyLevel: 1 + metaUpgrades.startingEcon, isBreached: false, workers: workers });
+    
+    if (level > 1) {
+        let placed = 0; const innerRadius = (level - 1) * RING_SPACING + 15; const outerRadius = level * RING_SPACING - 15;
+        for(let attempts=0; attempts<2000 && placed < level * 35; attempts++) {
+            let angle = Math.random() * Math.PI * 2; let bRadius = innerRadius + Math.random() * (outerRadius - innerRadius);
+            let bWidth = 5 + Math.random()*6; let bHeight = 5 + Math.random()*6; let bx = bRadius * Math.cos(angle); let by = bRadius * Math.sin(angle);
+            if (GATES.some(g => { let d = Math.abs(angle - g); return (d > Math.PI ? Math.PI*2 - d : d) < 0.15; })) continue;
+            if (!buildings.some(b => Math.hypot(b.radius*Math.cos(b.angle) - bx, b.radius*Math.sin(b.angle) - by) < (Math.max(bWidth, bHeight) + 2))) {
+                buildings.push({ radius: bRadius, angle, width: bWidth, height: bHeight, ringLevel: level, baseSeed: Math.random() }); placed++;
+            }
+        }
+    }
+    spawnTurretsForRing(level, 1);
+}
+
+function spawnTurretsForRing(level, defLevel) {
+    turrets = turrets.filter(t => t.ringLevel !== level);
+    let dmg = 8 + (defLevel*4) + (metaUpgrades.turretDamage * 2); let numTurrets = level*2 + (defLevel*2);
+    for(let i=0; i<numTurrets; i++) {
+        let tAngle = (Math.PI*2/numTurrets)*i + 0.1; let segIndex = Math.floor((tAngle / (Math.PI*2)) * NUM_SEGMENTS);
+        turrets.push({ radius: level*RING_SPACING, baseAngle: tAngle, ringLevel: level, segmentIndex: segIndex, cooldown: 0, maxCooldown: 40 - (defLevel*4), barrelAngle: 0, damage: dmg, index: i });
+    }
+}
+
+class Monster {
+    constructor(type = 0) {
+        this.type = type; 
+        let spawnAng = Math.random() * Math.PI * 2; let dist = (rings.length * RING_SPACING) + 1200 + Math.random()*300; 
+        this.x = dist * Math.cos(spawnAng); this.y = dist * Math.sin(spawnAng);
+        
+        let diff = 1 + (frameCount / 1000) + Math.pow(frameCount / 10000, 2); 
+        this.hp = 45 * diff; this.speed = 0.4 + Math.random()*0.5; this.damage = 0.3 * diff; this.angle = 0; this.idSeed = Math.random() * 100;
+        
+        if (this.type === 1) { 
+            this.hp *= 3; this.damage *= 2; this.speed *= 0.85; 
+        } else if (this.type === 2) {
+            this.hp *= 12; this.damage *= 5; this.speed *= 0.6; 
+        }
+    }
+    update() {
+        let targetUnit = null; let minDist = Infinity; let outerRadius = rings.length ? rings[rings.length - 1].radius : 0;
+        [...divisions, ...caravans].forEach(u => {
+            if (Math.hypot(u.x, u.y) > outerRadius - 20) { let d = Math.hypot(this.x - u.x, this.y - u.y); if (d < minDist && d < 300) { minDist = d; targetUnit = u; } }
+        });
+        let nextX, nextY;
+        if (targetUnit) {
+            this.angle = Math.atan2(targetUnit.y - this.y, targetUnit.x - this.x);
+            if (minDist > (this.type > 0 ? 15 : 10)) { nextX = this.x + Math.cos(this.angle)*this.speed; nextY = this.y + Math.sin(this.angle)*this.speed; } 
+            else { targetUnit.hp -= this.damage * 4; return; }
+        } else {
+            this.angle = Math.atan2(-this.y, -this.x); nextX = this.x + Math.cos(this.angle)*this.speed; nextY = this.y + Math.sin(this.angle)*this.speed;
+        }
+
+        let currentDist = Math.hypot(this.x, this.y); let predictedDist = Math.hypot(nextX, nextY); let blocked = false;
+        for (let r of rings) {
+            if (currentDist >= r.radius - 2 && predictedDist < r.radius + 6) {
+                let mAngle = (Math.atan2(this.y, this.x) + Math.PI*2) % (Math.PI*2);
+                let segIndex = Math.floor((mAngle / (Math.PI*2)) * NUM_SEGMENTS); let seg = r.segments[segIndex];
+                if (seg.hp > 0) {
+                    seg.hp -= this.damage; blocked = true; let blockAngle = Math.atan2(this.y, this.x);
+                    this.x = (r.radius + 6) * Math.cos(blockAngle) + (Math.random()-0.5)*1.5; this.y = (r.radius + 6) * Math.sin(blockAngle) + (Math.random()-0.5)*1.5; break; 
+                }
+            }
+        }
+        if (!blocked) { this.x = nextX; this.y = nextY; }
+        if (Math.hypot(this.x, this.y) < 30) { isGameOver = true; document.getElementById('go-cores').innerText = `${runCoresEarned} Aether Cores`; document.getElementById('game-over').style.display = 'block'; updateShopUI(); }
+    }
+    draw() {
+        ctx.save(); ctx.translate(this.x, this.y); ctx.rotate(this.angle);
+        let scale = this.type === 2 ? 2.5 : (this.type === 1 ? 1.5 : 1); ctx.scale(scale, scale);
+        let pulse = Math.sin(frameCount * 0.1 + this.idSeed) * 2;
+        ctx.shadowBlur = this.type > 0 ? 20 : 15; 
+        ctx.shadowColor = this.type === 2 ? "#fa0" : (this.type === 1 ? "#303" : "#300"); 
+        ctx.fillStyle = this.type === 2 ? "#2a0505" : "#050505";
+        ctx.beginPath(); ctx.moveTo(12 + pulse, 0); ctx.lineTo(2, -8 - pulse); ctx.lineTo(-6, -10); ctx.lineTo(-10 - pulse, -4); ctx.lineTo(-8, 0); ctx.lineTo(-10 - pulse, 4); ctx.lineTo(-6, 10); ctx.lineTo(2, 8 + pulse); ctx.fill();
+        ctx.fillStyle = this.type === 2 ? "#ffcc00" : (this.type === 1 ? "#d0f" : "#f00"); 
+        ctx.shadowBlur = 10; ctx.shadowColor = ctx.fillStyle;
+        ctx.beginPath(); ctx.arc(4, -4, 2, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(4, 4, 2, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+    }
+}
+
+class Projectile {
+    constructor(x, y, target, dmg, splash, isArtillery, isAntiAir) { 
+        this.x = x; this.y = y; this.target = target; this.targetX = target.x; this.targetY = target.y; 
+        this.speed = isArtillery ? 6 : (isAntiAir ? 18 : 12); 
+        this.damage = dmg; this.splash = splash; this.isArtillery = isArtillery; this.isAntiAir = isAntiAir;
+    }
+    update() {
+        let tx = this.isArtillery ? this.targetX : (this.target && this.target.hp > 0 ? this.target.x : this.targetX);
+        let ty = this.isArtillery ? this.targetY : (this.target && this.target.hp > 0 ? this.target.y : this.targetY);
+        let dist = Math.hypot(tx - this.x, ty - this.y);
+
+        if (dist < this.speed) { 
+            if (this.splash > 0) {
+                monsters.forEach(m => { if(Math.hypot(m.x - this.x, m.y - this.y) <= this.splash) m.hp -= this.damage; });
+                explosions.push({x: this.x, y: this.y, radius: this.splash, life: 15, maxLife: 15});
+            } else if (this.target && this.target.hp > 0 && Math.hypot(this.target.x - this.x, this.target.y - this.y) < 20) { 
+                this.target.hp -= this.damage; 
+            }
+            return false; 
+        }
+        this.x += ((tx - this.x) / dist) * this.speed; this.y += ((ty - this.y) / dist) * this.speed; return true; 
+    }
+    draw() { 
+        ctx.fillStyle = this.isArtillery ? "#ff5500" : (this.isAntiAir ? "#88ffaa" : "#fa0"); 
+        let size = this.isArtillery ? 4 : 2;
+        ctx.beginPath(); ctx.arc(this.x, this.y, size, 0, Math.PI * 2); ctx.fill(); 
+    }
+}
+
+function update() {
+    if (isGameOver) return; frameCount++;
+
+    outermostIntactLevel = 0;
+    for(let i=rings.length-1; i>=0; i--) {
+        rings[i].isBreached = rings[i].segments.some(s => s.hp <= 0);
+        if(!rings[i].isBreached && outermostIntactLevel === 0) outermostIntactLevel = rings[i].level;
+    }
+
+    let income = 0; 
+    rings.forEach(r => { if(!r.isBreached) income += Math.max(1, r.economyLevel * 2); }); 
+    
+    if (frameCount % 60 === 0) money += income;
+    if (frameCount % 3600 === 0) { aetherCores++; runCoresEarned++; saveMeta(); }
+
+    // Auto-Repair Walls Logic (Twice a second)
+    if (frameCount % 30 === 0) {
+        rings.forEach(r => {
+            // Check if ring has enemies near it
+            let enemiesNear = monsters.some(m => Math.hypot(m.x, m.y) > r.radius - 50 && Math.hypot(m.x, m.y) < r.radius + 50);
+            if (!enemiesNear) {
+                r.segments.forEach(seg => {
+                    // Only repair if the segment isn't fully destroyed and isn't at full health
+                    if (seg.hp > 0 && seg.hp < seg.maxHp) {
+                        seg.hp = Math.min(seg.maxHp, seg.hp + (2 * r.economyLevel));
+                    }
+                });
+            }
+        });
+    }
+
+    // Worker Updates
+    rings.forEach(r => {
+        r.workers.forEach(w => {
+            w.angle += w.speed;
+        });
+    });
+
+    let spawnRate = Math.max(3, 60 - Math.floor(frameCount / 80));
+    if (frameCount % spawnRate === 0) { 
+        let type = 0;
+        if (frameCount > 2000 && Math.random() < 0.2 + (frameCount/50000)) type = 1;
+        if (frameCount > 4000 && Math.random() < 0.05 + (frameCount/100000)) type = 2;
+        monsters.push(new Monster(type)); 
+    }
+
+    if (frameCount > 4500 && frameCount % (spawnRate * 5) === 0) {
+        enemyAir.push(new EnemyAircraft());
+    }
+    
+    if (frameCount % 400 === 0 && scrapNodes.length < 6) {
+        let ang = Math.random() * Math.PI * 2; let d = (rings.length * RING_SPACING) + 300 + Math.random() * 400; scrapNodes.push({x: d * Math.cos(ang), y: d * Math.sin(ang)});
+    }
+
+    monsters.forEach(m => m.update()); 
+    let oldMCount = monsters.length; monsters = monsters.filter(m => m.hp > 0);
+    let killed = oldMCount - monsters.length;
+
+    enemyAir.forEach(e => e.update());
+    let oldECount = enemyAir.length; enemyAir = enemyAir.filter(e => e.hp > 0);
+    killed += (oldECount - enemyAir.length);
+
+    if (killed > 0) { totalKills += killed; if (totalKills % 50 === 0) { aetherCores++; runCoresEarned++; saveMeta(); } }
+
+    divisions.forEach(d => d.update()); divisions = divisions.filter(d => d.hp > 0);
+    if(selectedDivision && selectedDivision.hp <= 0) deselectUnit();
+    
+    // Reset targetedBy counters before fighters select targets
+    enemyAir.forEach(e => e.targetedBy = 0);
+    airSquadrons.forEach(s => s.update());
+    
+    caravans = caravans.filter(c => c.update());
+    
+    turrets.forEach(t => {
+        let parentRing = rings.find(r => r.level === t.ringLevel);
+        if(!parentRing || parentRing.segments[t.segmentIndex].hp <= 0) return; 
+
+        let depth = outermostIntactLevel - t.ringLevel;
+        let isArtillery = depth >= 2; 
+        let isAA = isArtillery && (t.index % 3 === 0); 
+        let artDepthScale = Math.max(1, depth - 1); 
+
+        let tRange = isArtillery ? 300 + (artDepthScale * 150) : 250;
+        if (isAA) tRange += 200; 
+
+        let tDmg = isArtillery ? t.damage * (1.5 + artDepthScale) : t.damage;
+        let tCooldownMax = isArtillery ? 120 : t.maxCooldown;
+        if (isAA) tCooldownMax = 30; // Faster Anti-Air fire rate
+
+        let tSplash = isArtillery && !isAA ? 35 + (artDepthScale * 15) : 0;
+
+        if(t.cooldown > 0) t.cooldown--;
+        let tx = t.radius * Math.cos(t.baseAngle); let ty = t.radius * Math.sin(t.baseAngle);
+        let closest = null; let minDist = tRange;
+        
+        let minRange = isArtillery && !isAA ? t.radius + 30 : 0;
+
+        if (isAA) {
+            enemyAir.forEach(e => {
+                let d = Math.hypot(e.x - tx, e.y - ty); 
+                if (d < minDist) { minDist = d; closest = e; } 
+            });
+        } else {
+            monsters.forEach(m => { 
+                let d = Math.hypot(m.x - tx, m.y - ty); 
+                if (d < minDist && Math.hypot(m.x, m.y) > minRange) { minDist = d; closest = m; } 
+            });
+        }
+
+        if (closest) {
+            t.barrelAngle = Math.atan2(closest.y - ty, closest.x - tx);
+            if (t.cooldown <= 0) { 
+                projectiles.push(new Projectile(tx, ty, closest, tDmg, tSplash, isArtillery && !isAA, isAA)); 
+                t.cooldown = tCooldownMax; 
+            }
+        }
+    });
+
+    projectiles = projectiles.filter(p => p.update());
+    explosions.forEach(e => e.life--); explosions = explosions.filter(e => e.life > 0);
+
+    document.getElementById('status-money').innerText = `Scrap: $${Math.floor(money)}`;
+    document.getElementById('status-income').innerText = `Income: $${income} / sec`;
+    document.getElementById('status-rings').innerText = `City Size: ${rings.length} / 12 Rings`;
+    document.getElementById('status-divs').innerText = `Infantry: ${divisions.length} | Air Squads: ${airSquadrons.length}`;
+    document.getElementById('status-meta').innerText = `Aether Cores: ${aetherCores}`;
+    document.getElementById('status-kills').innerText = `Kills: ${totalKills}`;
+    
+    let cost = rings.length * 500;
+    document.getElementById('btn-expand').innerText = `Build New Ring ($${cost})`;
+    document.getElementById('btn-expand').disabled = money < cost || rings.length >= 12;
+    document.getElementById('btn-recruit').disabled = money < 300 || divisions.length >= rings.length;
+    document.getElementById('btn-recruit-air').disabled = money < 400 || airSquadrons.length >= rings.length;
+    document.getElementById('btn-caravan').disabled = money < 150;
+
+    if (selectedRingLevel) updateSelectionUI();
+}
+
+function draw() {
+    ctx.fillStyle = "#121110"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save(); ctx.translate(canvas.width/2, canvas.height/2); ctx.scale(camera.zoom, camera.zoom); ctx.translate(-camera.x, -camera.y);
+
+    ctx.fillStyle = "#181615"; ctx.beginPath(); ctx.arc(0, 0, rings.length ? rings[rings.length-1].radius : 0, 0, Math.PI*2); ctx.fill();
+
+    buildings.forEach(b => {
+        ctx.save(); ctx.translate(b.radius*Math.cos(b.angle), b.radius*Math.sin(b.angle)); ctx.rotate(b.angle); 
+        let parentRing = rings.find(r => r.level === b.ringLevel); 
+        let isBreached = parentRing ? parentRing.isBreached : false;
+        let econ = parentRing ? parentRing.economyLevel : 1;
+        let p = (10 - (b.ringLevel * 2)) + (econ * 1.5); 
+        
+        let darkness = isBreached ? 0.3 : 1.0;
+
+        if (p > 10) {
+            ctx.fillStyle = "rgba(0,0,0,0.8)"; ctx.fillRect(-b.width/2+6, -b.height/2+6, b.width, b.height); 
+            ctx.fillStyle = `rgb(${(40+b.baseSeed*20)*darkness}, ${(50+b.baseSeed*20)*darkness}, ${(60+b.baseSeed*30)*darkness})`; ctx.fillRect(-b.width/2, -b.height/2, b.width, b.height);
+            ctx.fillStyle = "#111"; ctx.fillRect(-b.width/4, -b.height/4, b.width/2, b.height/2);
+            if(b.baseSeed > 0.3 && !isBreached) { ctx.fillStyle = "#fee"; ctx.fillRect(-b.width/2 + 2, -b.height/2 + 2, 2, 2); }
+        } else if (p > 5) {
+            ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(-b.width/2+3, -b.height/2+3, b.width, b.height);
+            ctx.fillStyle = `rgb(${(50+b.baseSeed*20)*darkness}, ${(40+b.baseSeed*20)*darkness}, ${(30+b.baseSeed*20)*darkness})`; ctx.fillRect(-b.width/2, -b.height/2, b.width, b.height);
+            if(b.baseSeed > 0.5 && !isBreached) { ctx.fillStyle = "#aa8"; ctx.fillRect(-b.width/2 + 2, -b.height/2 + 2, 2, 2); }
+        } else {
+            ctx.fillStyle = `rgb(${(60+b.baseSeed*30)*darkness}, ${(30+b.baseSeed*10)*darkness}, ${(20)*darkness})`; 
+            ctx.beginPath(); ctx.moveTo(-b.width/2, -b.height/2); ctx.lineTo(b.width/2, -b.height/2 + (b.baseSeed > 0.5 ? 2 : 0)); ctx.lineTo(b.width/2 - (b.baseSeed < 0.5 ? 2 : 0), b.height/2); ctx.lineTo(-b.width/2, b.height/2); ctx.fill();
+            ctx.fillStyle = "#2a1a10"; ctx.fillRect(-b.width/3, -b.height/3, b.width/2, b.height/2);
+        }
+        ctx.restore();
+    });
+
+    if (rings.length > 0) {
+        let r1 = rings[0]; let size = 25 + (r1.economyLevel * 5); let defGlow = r1.isBreached ? 0 : r1.defenseLevel * 10;
+        ctx.save(); ctx.fillStyle = "#222"; ctx.beginPath(); ctx.arc(0,0,size+10,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "#444"; ctx.lineWidth = 4; ctx.stroke();
+        ctx.fillStyle = `rgb(${40+defGlow}, ${50+defGlow}, 60)`; ctx.beginPath(); ctx.moveTo(0, -size); ctx.lineTo(size, 0); ctx.lineTo(0, size); ctx.lineTo(-size, 0); ctx.fill();
+        if(!r1.isBreached) { ctx.fillStyle = "#0af"; ctx.shadowBlur = 15; ctx.shadowColor = "#0af"; ctx.beginPath(); ctx.arc(0,0,8 + (r1.economyLevel*2),0,Math.PI*2); ctx.fill(); }
+        ctx.restore();
+    }
+
+    scrapNodes.forEach(n => { ctx.fillStyle = "#aaa"; ctx.beginPath(); ctx.arc(n.x, n.y, 8, 0, Math.PI*2); ctx.fill(); ctx.fillStyle = "#ffd700"; ctx.beginPath(); ctx.arc(n.x, n.y, 4, 0, Math.PI*2); ctx.fill(); });
+
+    for (let i = 0; i < rings.length; i++) {
+        let r = rings[i]; 
+        r.segments.forEach((seg) => {
+            if (seg.hp > 0) {
+                let healthRatio = seg.hp / seg.maxHp;
+                
+                ctx.lineWidth = 18;
+                ctx.strokeStyle = selectedRingLevel === r.level ? `rgb(100, 80, 40)` : `rgb(${40 + (1-healthRatio)*100}, 30, 30)`;
+                ctx.beginPath(); ctx.arc(0, 0, r.radius, seg.startAngle + 0.01, seg.endAngle - 0.01); ctx.stroke();
+                
+                ctx.lineWidth = 10;
+                ctx.strokeStyle = selectedRingLevel === r.level ? `rgb(130, 110, 60)` : `rgb(60, 60, 60)`;
+                ctx.beginPath(); ctx.arc(0, 0, r.radius, seg.startAngle + 0.01, seg.endAngle - 0.01); ctx.stroke();
+
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = `rgba(150, 150, 150, 0.5)`;
+                ctx.beginPath(); ctx.arc(0, 0, r.radius - 4, seg.startAngle + 0.01, seg.endAngle - 0.01); ctx.stroke();
+            } else {
+                ctx.lineWidth = 14; ctx.strokeStyle = "rgba(40, 30, 30, 0.4)"; ctx.beginPath(); ctx.arc(0, 0, r.radius, seg.startAngle, seg.endAngle); ctx.stroke();
+            }
+        });
+
+        // Draw Workers on walls
+        r.workers.forEach(w => {
+            let wx = (r.radius + w.radiusOffset) * Math.cos(w.angle);
+            let wy = (r.radius + w.radiusOffset) * Math.sin(w.angle);
+            let inGate = GATES.some(g => { let d = Math.abs(w.angle - g); return (d > Math.PI ? Math.PI*2 - d : d) < 0.2; });
+            
+            // Check if segment is destroyed to hide workers
+            let wSegIndex = Math.floor(((w.angle + Math.PI*2) % (Math.PI*2) / (Math.PI*2)) * NUM_SEGMENTS);
+            let segHp = r.segments[wSegIndex] ? r.segments[wSegIndex].hp : 0;
+            
+            if (!inGate && segHp > 0) {
+                ctx.fillStyle = "#88aaff";
+                ctx.fillRect(wx - 1.5, wy - 1.5, 3, 3);
+            }
+        });
+        
+        ctx.fillStyle = "#151515";
+        GATES.forEach(angle => {
+            ctx.save(); ctx.translate(r.radius * Math.cos(angle), r.radius * Math.sin(angle)); ctx.rotate(angle);
+            ctx.fillRect(-12, -16, 24, 32); 
+            ctx.fillStyle = "#4a4a4a"; ctx.fillRect(-4, -16, 8, 32); 
+            ctx.fillStyle = "#151515";
+            ctx.restore();
+        });
+    }
+
+    turrets.forEach(t => {
+        let r = rings.find(ring => ring.level === t.ringLevel); if(!r || r.segments[t.segmentIndex].hp <= 0) return; 
+        
+        let depth = outermostIntactLevel - t.ringLevel; 
+        let isArtillery = depth >= 2;
+        let isAA = isArtillery && (t.index % 3 === 0);
+
+        ctx.save(); ctx.translate(t.radius*Math.cos(t.baseAngle), t.radius*Math.sin(t.baseAngle));
+        ctx.rotate(t.barrelAngle); 
+        
+        if (isAA) {
+            ctx.fillStyle = "#2b3b4b"; ctx.fillRect(-7, -7, 14, 14); 
+            ctx.fillStyle = "#556677"; ctx.fillRect(-2, -5, 12, 10); 
+            ctx.fillStyle = "#111"; 
+            ctx.fillRect(8, -4, 10, 2); ctx.fillRect(8, 2, 10, 2);
+            ctx.fillRect(10, -2, 10, 1); ctx.fillRect(10, 1, 10, 1);
+        } else if (isArtillery) {
+            if (depth >= 3) {
+                ctx.fillStyle = "#35302a"; ctx.fillRect(-10, -10, 20, 20); 
+                ctx.fillStyle = "#222"; ctx.fillRect(-4, -8, 16, 16); 
+                ctx.fillStyle = "#111"; 
+                ctx.fillRect(10, -6, 24, 4); ctx.fillRect(10, 2, 24, 4);
+            } else {
+                ctx.fillStyle = "#3a3a3a"; ctx.fillRect(-8, -8, 16, 16); 
+                ctx.fillStyle = "#222"; ctx.fillRect(-2, -5, 12, 10); 
+                ctx.fillStyle = "#111"; ctx.fillRect(10, -3, 18, 6); 
+            }
+        } else {
+            ctx.fillStyle = "#2a2a2a"; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "#333"; ctx.fillRect(-2, -4, 8, 8); 
+            ctx.fillStyle = "#111"; ctx.fillRect(4, -2, 12, 4); 
+        }
+        ctx.restore();
+    });
+
+    caravans.forEach(c => c.draw()); divisions.forEach(d => d.draw()); monsters.forEach(m => m.draw()); projectiles.forEach(p => p.draw());
+    
+    enemyAir.forEach(e => e.draw());
+    airSquadrons.forEach(s => s.draw());
+
+    explosions.forEach(e => {
+        ctx.fillStyle = `rgba(255, 100, 0, ${e.life / e.maxLife})`;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.radius, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = `rgba(255, 200, 50, ${e.life / e.maxLife})`;
+        ctx.beginPath(); ctx.arc(e.x, e.y, e.radius * 0.5, 0, Math.PI*2); ctx.fill();
+    });
+
+    ctx.restore();
+}
+
+function updateShopUI() {
+    let costSq = getCost('squadSize'); let costWall = getCost('wallHp'); let costTurr = getCost('turretDamage'); let costEcon = getCost('startingEcon');
+    let btnDiv = document.getElementById('btn-shop-div');
+    btnDiv.disabled = aetherCores < costSq || metaUpgrades.squadSize >= 4; btnDiv.innerText = metaUpgrades.squadSize >= 4 ? "(MAX)" : `Buy (${costSq} Core) [Lv ${metaUpgrades.squadSize}]`;
+    document.getElementById('btn-shop-wall').disabled = aetherCores < costWall; document.getElementById('btn-shop-wall').innerText = `Buy (${costWall} Core) [Lv ${metaUpgrades.wallHp}]`;
+    document.getElementById('btn-shop-turret').disabled = aetherCores < costTurr; document.getElementById('btn-shop-turret').innerText = `Buy (${costTurr} Core) [Lv ${metaUpgrades.turretDamage}]`;
+    document.getElementById('btn-shop-econ').disabled = aetherCores < costEcon; document.getElementById('btn-shop-econ').innerText = `Buy (${costEcon} Cores) [Lv ${metaUpgrades.startingEcon}]`;
+}
+
+function gameLoop() { if (!isGameOver) { update(); draw(); requestAnimationFrame(gameLoop); } }
+
+window.expandCity = function() { const cost = rings.length * 500; if (money >= cost && rings.length < 12) { money -= cost; addRing(rings.length + 1); } };
+window.recruitDivision = function() { if (money >= 300 && divisions.length < rings.length) { money -= 300; divisions.push(new Division()); }};
+window.recruitAirSquadron = function() { if (money >= 400 && airSquadrons.length < rings.length) { money -= 400; airSquadrons.push(new FighterSquadron()); }};
+window.deployCaravan = function() { if (money >= 150) { money -= 150; caravans.push(new Caravan()); }};
+window.upgradeDefense = function() { if(!selectedRingLevel) return; let r = rings[selectedRingLevel-1]; let c = r.defenseLevel*100; if(money>=c){ money-=c; r.defenseLevel++; r.segments.forEach(s => { s.maxHp += 50; s.hp += 50; }); spawnTurretsForRing(r.level, r.defenseLevel); updateSelectionUI(); }};
+window.upgradeEconomy = function() { if(!selectedRingLevel) return; let r = rings[selectedRingLevel-1]; let c = r.economyLevel*150; if(money>=c){ money-=c; r.economyLevel++; updateSelectionUI(); }};
+window.closeSelection = function() { selectedRingLevel = null; document.getElementById('ui-selection').style.display = 'none'; };
+
+function updateSelectionUI() { 
+    if(!selectedRingLevel) return; 
+    let r = rings[selectedRingLevel-1]; 
+    document.getElementById('ui-selection').style.display = 'block'; 
+    document.getElementById('sel-title').innerText = `Ring ${r.level} Selected`; 
+    document.getElementById('sel-stats').innerText = `Defenses: Lv ${r.defenseLevel} | Economy: Lv ${r.economyLevel}`; 
+    
+    let alertEl = document.getElementById('sel-alert');
+    if (r.isBreached) { alertEl.style.display = 'block'; } else { alertEl.style.display = 'none'; }
+
+    let dc=r.defenseLevel*100; let ec=r.economyLevel*150; 
+    let bd=document.getElementById('btn-up-def'); bd.innerText=`Upgrade Defenses ($${dc})`; bd.disabled=money<dc; 
+    let be=document.getElementById('btn-up-econ'); be.innerText=`Upgrade Economy ($${ec})`; be.disabled=money<ec || r.isBreached; 
+}
+
+initGame();
+</script>
+</body>
+</html>
